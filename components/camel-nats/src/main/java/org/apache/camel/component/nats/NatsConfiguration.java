@@ -20,9 +20,11 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 
 import io.nats.client.Connection;
-import io.nats.client.Nats;
 import io.nats.client.Options;
 import io.nats.client.Options.Builder;
+import io.nats.client.PullSubscribeOptions;
+import io.nats.client.PushSubscribeOptions;
+import io.nats.client.api.ConsumerConfiguration;
 import org.apache.camel.spi.HeaderFilterStrategy;
 import org.apache.camel.spi.Metadata;
 import org.apache.camel.spi.UriParam;
@@ -90,6 +92,26 @@ public class NatsConfiguration {
     private boolean traceConnection;
     @UriParam(label = "advanced")
     private HeaderFilterStrategy headerFilterStrategy = new DefaultHeaderFilterStrategy();
+    @UriParam(label = "producer,jetstream", defaultValue = "false")
+    private boolean jetStream = false;
+    @UriParam(label = "consumer,jetstream")
+    private PushSubscribeOptions.Builder pushSubscribeOptions;
+    @UriParam(label = "consumer,jetstream")
+    private PullSubscribeOptions.Builder pullSubscribeOptions;
+    @UriParam(label = "consumer,jetstream")
+    private ConsumerConfiguration.Builder consumerConfiguration;
+    @UriParam(label = "consumer,jetstream", defaultValue = "100")
+    private int pullBatchSize = 100;
+    @UriParam(label = "consumer,jetstream", defaultValue = "10000")
+    private long pullDuration = 5000;
+    @UriParam(label = "consumer,jetstream", defaultValue = "false")
+    private boolean autoAck = false;
+    @UriParam(label = "consumer,jetstream", defaultValue = "0")
+    private long ackSync = 0;
+    @UriParam(label = "consumer,jetstream", defaultValue = "-1")
+    private int maximumDeliveryAttempts = -1;
+    @UriParam(label = "consumer,jetstream", defaultValue = "-1")
+    private long retryDelay = -1;
 
     /**
      * URLs to one or more NAT servers. Use comma to separate URLs when specifying multiple servers.
@@ -383,6 +405,146 @@ public class NatsConfiguration {
         this.credentialsFilePath = credentialsFilePath;
     }
 
+    /**
+     * Whether or not connection trace messages should be printed to standard out for fine grained debugging of
+     * connection issues.
+     */
+    public boolean isTraceConnection() {
+        return traceConnection;
+    }
+
+    public void setTraceConnection(boolean traceConnection) {
+        this.traceConnection = traceConnection;
+    }
+
+    /**
+     * The PushSubscribeOptions.Builder to configure a 'push' JetStream consumer. Specifying these options will create a
+     * JetStream consumer. Cannot specify both 'push' and 'pull' configurations simultaneously.
+     */
+    public PushSubscribeOptions.Builder getPushSubscribeOptions() {
+        return pushSubscribeOptions;
+    }
+
+    public void setPushSubscribeOptions(PushSubscribeOptions.Builder pushSubscribeOptions) {
+        this.pushSubscribeOptions = pushSubscribeOptions;
+    }
+
+    /**
+     * The PullSubscribeOptions.Builder to configure a 'pull' JetStream consumer. Specifying these options will create a
+     * JetStream consumer. Cannot specify both 'push' and 'pull' configurations simultaneously.
+     */
+    public PullSubscribeOptions.Builder getPullSubscribeOptions() {
+        return pullSubscribeOptions;
+    }
+
+    public void setPullSubscribeOptions(PullSubscribeOptions.Builder pullSubscribeOptions) {
+        this.pullSubscribeOptions = pullSubscribeOptions;
+    }
+
+    /**
+     * The ConsumerConfiguration.Builder to configure a JetStream consumer. Used when either a 'pull' or 'push' consumer
+     * has been configured.
+     */
+    public ConsumerConfiguration.Builder getConsumerConfiguration() {
+        return consumerConfiguration;
+    }
+
+    public void setConsumerConfiguration(ConsumerConfiguration.Builder consumerConfiguration) {
+        this.consumerConfiguration = consumerConfiguration;
+    }
+
+    /**
+     * The batch size to pull every 'pullDuration' milliseconds when using a PullSubscribe consumer.
+     */
+    public int getPullBatchSize() {
+        return pullBatchSize;
+    }
+
+    public void setPullBatchSize(int pullBatchSize) {
+        this.pullBatchSize = pullBatchSize;
+    }
+
+    /**
+     * The pull duration (milliseconds) for each batch when using a PullSubscribe consumer.
+     */
+    public long getPullDuration() {
+        return pullDuration;
+    }
+
+    public void setPullDuration(long pullDuration) {
+        this.pullDuration = pullDuration;
+    }
+
+    /**
+     * Whether the consumer is autoAck. Only relevant for PushSubscribeConsumers. Has no effect on non-JetStream
+     * consumers.
+     */
+    public boolean isAutoAck() {
+        return autoAck;
+    }
+
+    public void setAutoAck(boolean autoAck) {
+        this.autoAck = autoAck;
+    }
+
+    /**
+     * The duration in millis to wait an ack confirmation. Zero millis means that we don't wait for confirmation. Has no
+     * effect on non-JetStream consumers.
+     */
+    public long getAckSync() {
+        return ackSync;
+    }
+
+    public void setAckSync(long ackSync) {
+        this.ackSync = ackSync;
+    }
+
+    /**
+     * The maximum number of redelivery attempts before terminating consumption of a message. Has no effect on
+     * non-JetStream consumers.
+     */
+    public int getMaximumDeliveryAttempts() {
+        return maximumDeliveryAttempts;
+    }
+
+    public void setMaximumDeliveryAttempts(int maximumDeliveryAttempts) {
+        this.maximumDeliveryAttempts = maximumDeliveryAttempts;
+    }
+
+    /**
+     * The delay between retries when nak-ing a message. Has no effect on non-JetStream consumers.
+     */
+    public long getRetryDelay() {
+        return retryDelay;
+    }
+
+    public void setRetryDelay(long retryDelay) {
+        this.retryDelay = retryDelay;
+    }
+
+    /**
+     * Whether the producer should use JetStream and wait for acknowledgements.
+     */
+    public boolean isJetStream() {
+        return jetStream;
+    }
+
+    public void setJetStream(boolean jetStream) {
+        this.jetStream = jetStream;
+    }
+
+    boolean isJetStreamConsumer() {
+        return isPushSubscribe() || isPullSubscribe();
+    }
+
+    boolean isPushSubscribe() {
+        return pushSubscribeOptions != null;
+    }
+
+    boolean isPullSubscribe() {
+        return pullSubscribeOptions != null;
+    }
+
     public Builder createOptions() throws NoSuchAlgorithmException, IllegalArgumentException {
         Builder builder = new Options.Builder();
         builder.server(splitServers());
@@ -441,17 +603,5 @@ public class NatsConfiguration {
             }
         }
         return servers.toString();
-    }
-
-    /**
-     * Whether or not connection trace messages should be printed to standard out for fine grained debugging of
-     * connection issues.
-     */
-    public boolean isTraceConnection() {
-        return traceConnection;
-    }
-
-    public void setTraceConnection(boolean traceConnection) {
-        this.traceConnection = traceConnection;
     }
 }

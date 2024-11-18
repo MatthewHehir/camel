@@ -31,4 +31,13 @@ public interface NatsConstants {
     @Metadata(description = "The Queue name of a consumed message (may be null).", javaType = "String")
     String NATS_QUEUE_NAME = "CamelNatsQueueName";
     String NATS_REQUEST_TIMEOUT_THREAD_PROFILE_NAME = "CamelNatsRequestTimeoutExecutor";
+
+    @Metadata(description = "The name of the stream a published message was stored in")
+    String NATS_STREAM_NAME = "CamelNatsStreamName";
+    @Metadata(description = "The stream sequence number for the corresponding published message")
+    String NATS_SEQUENCE_NO = "CamelNatsSequenceNo";
+    @Metadata(description = "The domain of a stream")
+    String NATS_DOMAIN_NAME = "CamelNatsDomainName";
+    @Metadata(description = "Whether the server detected the published message was a duplicate")
+    String NATS_WAS_DUPLICATE = "CamelNatsWasDuplicate";
 }

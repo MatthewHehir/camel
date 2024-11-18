@@ -16,14 +16,21 @@
  */
 package org.apache.camel.component.nats;
 
+import java.io.IOException;
 import java.time.Duration;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.nats.client.Connection;
 import io.nats.client.Connection.Status;
 import io.nats.client.Dispatcher;
+import io.nats.client.JetStreamApiException;
+import io.nats.client.JetStreamSubscription;
 import io.nats.client.Message;
 import io.nats.client.MessageHandler;
+import io.nats.client.PullSubscribeOptions;
+import io.nats.client.PushSubscribeOptions;
+import io.nats.client.api.ConsumerConfiguration;
 import org.apache.camel.Exchange;
 import org.apache.camel.Processor;
 import org.apache.camel.spi.HeaderFilterStrategy;
@@ -36,11 +43,11 @@ public class NatsConsumer extends DefaultConsumer {
 
     private static final Logger LOG = LoggerFactory.getLogger(NatsConsumer.class);
 
+    private final AtomicBoolean active = new AtomicBoolean();
     private final Processor processor;
     private ExecutorService executor;
     private Connection connection;
     private Dispatcher dispatcher;
-    private boolean active;
 
     public NatsConsumer(NatsEndpoint endpoint, Processor processor) {
         super(endpoint, processor);
@@ -103,11 +110,11 @@ public class NatsConsumer extends DefaultConsumer {
     }
 
     public boolean isActive() {
-        return this.active;
+        return this.active.get();
     }
 
     public void setActive(boolean active) {
-        this.active = active;
+        this.active.set(active);
     }
 
     class NatsConsumingTask implements Runnable {
@@ -123,41 +130,88 @@ public class NatsConsumer extends DefaultConsumer {
         @Override
         public void run() {
             try {
-                NatsConsumer.this.dispatcher = this.connection.createDispatcher(new CamelNatsMessageHandler());
-                if (ObjectHelper.isNotEmpty(this.configuration.getQueueName())) {
-                    NatsConsumer.this.dispatcher = NatsConsumer.this.dispatcher.subscribe(
-                            NatsConsumer.this.getEndpoint().getConfiguration().getTopic(),
-                            NatsConsumer.this.getEndpoint().getConfiguration().getQueueName());
-                    if (ObjectHelper.isNotEmpty(NatsConsumer.this.getEndpoint().getConfiguration().getMaxMessages())) {
-                        NatsConsumer.this.dispatcher.unsubscribe(
-                                NatsConsumer.this.getEndpoint().getConfiguration().getTopic(),
-                                Integer.parseInt(NatsConsumer.this.getEndpoint().getConfiguration().getMaxMessages()));
-                    }
-                    if (NatsConsumer.this.dispatcher.isActive()) {
-                        NatsConsumer.this.setActive(true);
-                    }
+                if (configuration.isJetStreamConsumer()) {
+                    runJetStream();
                 } else {
-                    NatsConsumer.this.dispatcher = NatsConsumer.this.dispatcher
-                            .subscribe(NatsConsumer.this.getEndpoint().getConfiguration().getTopic());
-                    if (ObjectHelper.isNotEmpty(NatsConsumer.this.getEndpoint().getConfiguration().getMaxMessages())) {
-                        NatsConsumer.this.dispatcher.unsubscribe(
-                                NatsConsumer.this.getEndpoint().getConfiguration().getTopic(),
-                                Integer.parseInt(NatsConsumer.this.getEndpoint().getConfiguration().getMaxMessages()));
-                    }
-                    if (NatsConsumer.this.dispatcher.isActive()) {
-                        NatsConsumer.this.setActive(true);
-                    }
+                    runNonJetStream();
                 }
             } catch (final Exception e) {
                 NatsConsumer.this.getExceptionHandler().handleException("Error during processing", e);
             }
+        }
 
+        private void runNonJetStream() {
+            dispatcher = connection.createDispatcher(new CamelNatsMessageHandler());
+
+            if (ObjectHelper.isNotEmpty(configuration.getQueueName())) {
+                dispatcher = dispatcher.subscribe(configuration.getTopic(), configuration.getQueueName());
+            } else {
+                dispatcher = dispatcher.subscribe(configuration.getTopic());
+            }
+
+            final String maxMessages = configuration.getMaxMessages();
+            if (ObjectHelper.isNotEmpty(maxMessages)) {
+                dispatcher.unsubscribe(configuration.getTopic(), Integer.parseInt(maxMessages));
+            }
+
+            if (dispatcher.isActive()) {
+                setActive(true);
+            }
+        }
+
+        private void runJetStream() throws IOException, JetStreamApiException {
+            final MessageHandler messageHandler = new CamelNatsMessageHandler();
+            dispatcher = connection.createDispatcher(messageHandler);
+
+            final JetStreamSubscription subscription;
+            if (configuration.isPullSubscribe()) {
+                if (configuration.isPushSubscribe()) {
+                    throw new IllegalArgumentException("Cannot configure both a Pull- and Push-Subscribe JetStream consumer");
+                }
+
+                final ConsumerConfiguration.Builder consumerConfigurationBuilder = configuration.getConsumerConfiguration();
+                final ConsumerConfiguration consumerConfiguration
+                        = consumerConfigurationBuilder == null ? null : consumerConfigurationBuilder.build();
+
+                final PullSubscribeOptions options = configuration.getPullSubscribeOptions()
+                        .configuration(consumerConfiguration)
+                        .build();
+
+                subscription = connection.jetStream().subscribe(
+                        configuration.getTopic(),
+                        dispatcher,
+                        messageHandler,
+                        options);
+
+                // submit a task to pull the messages:
+                executor.submit(new PullSubscribeFetcher(configuration, subscription));
+            } else {
+                final ConsumerConfiguration.Builder consumerConfigurationBuilder = configuration.getConsumerConfiguration();
+                final ConsumerConfiguration consumerConfiguration
+                        = consumerConfigurationBuilder == null ? null : consumerConfigurationBuilder.build();
+
+                final PushSubscribeOptions options = configuration.getPushSubscribeOptions()
+                        .configuration(consumerConfiguration)
+                        .build();
+
+                subscription = connection.jetStream().subscribe(
+                        configuration.getTopic(),
+                        configuration.getQueueName(),
+                        dispatcher,
+                        messageHandler,
+                        configuration.isAutoAck(),
+                        options);
+            }
+
+            if (subscription.isActive()) {
+                setActive(true);
+            }
         }
 
         class CamelNatsMessageHandler implements MessageHandler {
 
             @Override
-            public void onMessage(Message msg) throws InterruptedException {
+            public void onMessage(Message msg) {
                 LOG.debug("Received Message: {}", msg);
                 final Exchange exchange = NatsConsumer.this.createExchange(false);
                 try {
@@ -187,7 +241,7 @@ public class NatsConsumer extends DefaultConsumer {
                     }
                     NatsConsumer.this.processor.process(exchange);
 
-                    // is there a reply?
+                    // Is there a reply?
                     if (!NatsConsumingTask.this.configuration.isReplyToDisabled()
                             && msg.getReplyTo() != null && msg.getConnection() != null) {
                         final Connection con = msg.getConnection();
@@ -197,11 +251,54 @@ public class NatsConsumer extends DefaultConsumer {
                             con.publish(msg.getReplyTo(), data);
                         }
                     }
+
+                    final long ackSync = configuration.getAckSync();
+                    if (ackSync == 0) {
+                        msg.ack();
+                    } else {
+                        msg.ackSync(Duration.ofMillis(ackSync));
+                    }
                 } catch (final Exception e) {
                     NatsConsumer.this.getExceptionHandler().handleException("Error during processing", exchange, e);
+
+                    if (msg.isJetStream()) {
+                        final int maxDeliveries = configuration.getMaximumDeliveryAttempts();
+                        if (maxDeliveries > 0 && maxDeliveries <= msg.metaData().deliveredCount()) {
+                            msg.term();
+                        }
+
+                        final long retryDelay = configuration.getRetryDelay();
+                        msg.nakWithDelay(retryDelay);
+                    }
                 } finally {
                     NatsConsumer.this.releaseExchange(exchange, false);
                 }
+            }
+        }
+    }
+
+    private final class PullSubscribeFetcher implements Runnable {
+
+        private final NatsConfiguration configuration;
+        private final JetStreamSubscription subscription;
+
+        private PullSubscribeFetcher(NatsConfiguration configuration, JetStreamSubscription subscription) {
+            this.configuration = configuration;
+            this.subscription = subscription;
+        }
+
+        @Override
+        public void run() {
+            while (subscription.isActive() && !executor.isShutdown()) {
+                fetch();
+            }
+        }
+
+        private void fetch() {
+            try {
+                subscription.pullExpiresIn(configuration.getPullBatchSize(), configuration.getPullDuration());
+            } catch (final Exception e) {
+                getExceptionHandler().handleException("Error pulling messages for pull subscription", e);
             }
         }
     }

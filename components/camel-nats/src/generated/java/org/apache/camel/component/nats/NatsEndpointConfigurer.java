@@ -23,11 +23,17 @@ public class NatsEndpointConfigurer extends PropertyConfigurerSupport implements
     public boolean configure(CamelContext camelContext, Object obj, String name, Object value, boolean ignoreCase) {
         NatsEndpoint target = (NatsEndpoint) obj;
         switch (ignoreCase ? name.toLowerCase() : name) {
+        case "acksync":
+        case "ackSync": target.getConfiguration().setAckSync(property(camelContext, long.class, value)); return true;
+        case "autoack":
+        case "autoAck": target.getConfiguration().setAutoAck(property(camelContext, boolean.class, value)); return true;
         case "bridgeerrorhandler":
         case "bridgeErrorHandler": target.setBridgeErrorHandler(property(camelContext, boolean.class, value)); return true;
         case "connection": target.getConfiguration().setConnection(property(camelContext, io.nats.client.Connection.class, value)); return true;
         case "connectiontimeout":
         case "connectionTimeout": target.getConfiguration().setConnectionTimeout(property(camelContext, int.class, value)); return true;
+        case "consumerconfiguration":
+        case "consumerConfiguration": target.getConfiguration().setConsumerConfiguration(property(camelContext, io.nats.client.api.ConsumerConfiguration.Builder.class, value)); return true;
         case "credentialsfilepath":
         case "credentialsFilePath": target.getConfiguration().setCredentialsFilePath(property(camelContext, java.lang.String.class, value)); return true;
         case "exceptionhandler":
@@ -40,6 +46,8 @@ public class NatsEndpointConfigurer extends PropertyConfigurerSupport implements
         case "flushTimeout": target.getConfiguration().setFlushTimeout(property(camelContext, int.class, value)); return true;
         case "headerfilterstrategy":
         case "headerFilterStrategy": target.getConfiguration().setHeaderFilterStrategy(property(camelContext, org.apache.camel.spi.HeaderFilterStrategy.class, value)); return true;
+        case "jetstream":
+        case "jetStream": target.getConfiguration().setJetStream(property(camelContext, boolean.class, value)); return true;
         case "lazystartproducer":
         case "lazyStartProducer": target.setLazyStartProducer(property(camelContext, boolean.class, value)); return true;
         case "maxmessages":
@@ -48,6 +56,8 @@ public class NatsEndpointConfigurer extends PropertyConfigurerSupport implements
         case "maxPingsOut": target.getConfiguration().setMaxPingsOut(property(camelContext, int.class, value)); return true;
         case "maxreconnectattempts":
         case "maxReconnectAttempts": target.getConfiguration().setMaxReconnectAttempts(property(camelContext, int.class, value)); return true;
+        case "maximumdeliveryattempts":
+        case "maximumDeliveryAttempts": target.getConfiguration().setMaximumDeliveryAttempts(property(camelContext, int.class, value)); return true;
         case "noecho":
         case "noEcho": target.getConfiguration().setNoEcho(property(camelContext, boolean.class, value)); return true;
         case "norandomizeservers":
@@ -57,6 +67,14 @@ public class NatsEndpointConfigurer extends PropertyConfigurerSupport implements
         case "pingInterval": target.getConfiguration().setPingInterval(property(camelContext, int.class, value)); return true;
         case "poolsize":
         case "poolSize": target.getConfiguration().setPoolSize(property(camelContext, int.class, value)); return true;
+        case "pullbatchsize":
+        case "pullBatchSize": target.getConfiguration().setPullBatchSize(property(camelContext, int.class, value)); return true;
+        case "pullduration":
+        case "pullDuration": target.getConfiguration().setPullDuration(property(camelContext, long.class, value)); return true;
+        case "pullsubscribeoptions":
+        case "pullSubscribeOptions": target.getConfiguration().setPullSubscribeOptions(property(camelContext, io.nats.client.PullSubscribeOptions.Builder.class, value)); return true;
+        case "pushsubscribeoptions":
+        case "pushSubscribeOptions": target.getConfiguration().setPushSubscribeOptions(property(camelContext, io.nats.client.PushSubscribeOptions.Builder.class, value)); return true;
         case "queuename":
         case "queueName": target.getConfiguration().setQueueName(property(camelContext, java.lang.String.class, value)); return true;
         case "reconnect": target.getConfiguration().setReconnect(property(camelContext, boolean.class, value)); return true;
@@ -70,6 +88,8 @@ public class NatsEndpointConfigurer extends PropertyConfigurerSupport implements
         case "requestCleanupInterval": target.getConfiguration().setRequestCleanupInterval(property(camelContext, int.class, value)); return true;
         case "requesttimeout":
         case "requestTimeout": target.getConfiguration().setRequestTimeout(property(camelContext, long.class, value)); return true;
+        case "retrydelay":
+        case "retryDelay": target.getConfiguration().setRetryDelay(property(camelContext, long.class, value)); return true;
         case "secure": target.getConfiguration().setSecure(property(camelContext, boolean.class, value)); return true;
         case "servers": target.getConfiguration().setServers(property(camelContext, java.lang.String.class, value)); return true;
         case "sslcontextparameters":
@@ -84,11 +104,17 @@ public class NatsEndpointConfigurer extends PropertyConfigurerSupport implements
     @Override
     public Class<?> getOptionType(String name, boolean ignoreCase) {
         switch (ignoreCase ? name.toLowerCase() : name) {
+        case "acksync":
+        case "ackSync": return long.class;
+        case "autoack":
+        case "autoAck": return boolean.class;
         case "bridgeerrorhandler":
         case "bridgeErrorHandler": return boolean.class;
         case "connection": return io.nats.client.Connection.class;
         case "connectiontimeout":
         case "connectionTimeout": return int.class;
+        case "consumerconfiguration":
+        case "consumerConfiguration": return io.nats.client.api.ConsumerConfiguration.Builder.class;
         case "credentialsfilepath":
         case "credentialsFilePath": return java.lang.String.class;
         case "exceptionhandler":
@@ -101,6 +127,8 @@ public class NatsEndpointConfigurer extends PropertyConfigurerSupport implements
         case "flushTimeout": return int.class;
         case "headerfilterstrategy":
         case "headerFilterStrategy": return org.apache.camel.spi.HeaderFilterStrategy.class;
+        case "jetstream":
+        case "jetStream": return boolean.class;
         case "lazystartproducer":
         case "lazyStartProducer": return boolean.class;
         case "maxmessages":
@@ -109,6 +137,8 @@ public class NatsEndpointConfigurer extends PropertyConfigurerSupport implements
         case "maxPingsOut": return int.class;
         case "maxreconnectattempts":
         case "maxReconnectAttempts": return int.class;
+        case "maximumdeliveryattempts":
+        case "maximumDeliveryAttempts": return int.class;
         case "noecho":
         case "noEcho": return boolean.class;
         case "norandomizeservers":
@@ -118,6 +148,14 @@ public class NatsEndpointConfigurer extends PropertyConfigurerSupport implements
         case "pingInterval": return int.class;
         case "poolsize":
         case "poolSize": return int.class;
+        case "pullbatchsize":
+        case "pullBatchSize": return int.class;
+        case "pullduration":
+        case "pullDuration": return long.class;
+        case "pullsubscribeoptions":
+        case "pullSubscribeOptions": return io.nats.client.PullSubscribeOptions.Builder.class;
+        case "pushsubscribeoptions":
+        case "pushSubscribeOptions": return io.nats.client.PushSubscribeOptions.Builder.class;
         case "queuename":
         case "queueName": return java.lang.String.class;
         case "reconnect": return boolean.class;
@@ -131,6 +169,8 @@ public class NatsEndpointConfigurer extends PropertyConfigurerSupport implements
         case "requestCleanupInterval": return int.class;
         case "requesttimeout":
         case "requestTimeout": return long.class;
+        case "retrydelay":
+        case "retryDelay": return long.class;
         case "secure": return boolean.class;
         case "servers": return java.lang.String.class;
         case "sslcontextparameters":
@@ -146,11 +186,17 @@ public class NatsEndpointConfigurer extends PropertyConfigurerSupport implements
     public Object getOptionValue(Object obj, String name, boolean ignoreCase) {
         NatsEndpoint target = (NatsEndpoint) obj;
         switch (ignoreCase ? name.toLowerCase() : name) {
+        case "acksync":
+        case "ackSync": return target.getConfiguration().getAckSync();
+        case "autoack":
+        case "autoAck": return target.getConfiguration().isAutoAck();
         case "bridgeerrorhandler":
         case "bridgeErrorHandler": return target.isBridgeErrorHandler();
         case "connection": return target.getConfiguration().getConnection();
         case "connectiontimeout":
         case "connectionTimeout": return target.getConfiguration().getConnectionTimeout();
+        case "consumerconfiguration":
+        case "consumerConfiguration": return target.getConfiguration().getConsumerConfiguration();
         case "credentialsfilepath":
         case "credentialsFilePath": return target.getConfiguration().getCredentialsFilePath();
         case "exceptionhandler":
@@ -163,6 +209,8 @@ public class NatsEndpointConfigurer extends PropertyConfigurerSupport implements
         case "flushTimeout": return target.getConfiguration().getFlushTimeout();
         case "headerfilterstrategy":
         case "headerFilterStrategy": return target.getConfiguration().getHeaderFilterStrategy();
+        case "jetstream":
+        case "jetStream": return target.getConfiguration().isJetStream();
         case "lazystartproducer":
         case "lazyStartProducer": return target.isLazyStartProducer();
         case "maxmessages":
@@ -171,6 +219,8 @@ public class NatsEndpointConfigurer extends PropertyConfigurerSupport implements
         case "maxPingsOut": return target.getConfiguration().getMaxPingsOut();
         case "maxreconnectattempts":
         case "maxReconnectAttempts": return target.getConfiguration().getMaxReconnectAttempts();
+        case "maximumdeliveryattempts":
+        case "maximumDeliveryAttempts": return target.getConfiguration().getMaximumDeliveryAttempts();
         case "noecho":
         case "noEcho": return target.getConfiguration().isNoEcho();
         case "norandomizeservers":
@@ -180,6 +230,14 @@ public class NatsEndpointConfigurer extends PropertyConfigurerSupport implements
         case "pingInterval": return target.getConfiguration().getPingInterval();
         case "poolsize":
         case "poolSize": return target.getConfiguration().getPoolSize();
+        case "pullbatchsize":
+        case "pullBatchSize": return target.getConfiguration().getPullBatchSize();
+        case "pullduration":
+        case "pullDuration": return target.getConfiguration().getPullDuration();
+        case "pullsubscribeoptions":
+        case "pullSubscribeOptions": return target.getConfiguration().getPullSubscribeOptions();
+        case "pushsubscribeoptions":
+        case "pushSubscribeOptions": return target.getConfiguration().getPushSubscribeOptions();
         case "queuename":
         case "queueName": return target.getConfiguration().getQueueName();
         case "reconnect": return target.getConfiguration().isReconnect();
@@ -193,6 +251,8 @@ public class NatsEndpointConfigurer extends PropertyConfigurerSupport implements
         case "requestCleanupInterval": return target.getConfiguration().getRequestCleanupInterval();
         case "requesttimeout":
         case "requestTimeout": return target.getConfiguration().getRequestTimeout();
+        case "retrydelay":
+        case "retryDelay": return target.getConfiguration().getRetryDelay();
         case "secure": return target.getConfiguration().isSecure();
         case "servers": return target.getConfiguration().getServers();
         case "sslcontextparameters":

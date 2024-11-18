@@ -16,6 +16,7 @@
  */
 package org.apache.camel.component.nats;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
@@ -24,7 +25,9 @@ import java.util.concurrent.TimeUnit;
 
 import io.nats.client.Connection;
 import io.nats.client.Connection.Status;
+import io.nats.client.JetStreamApiException;
 import io.nats.client.Message;
+import io.nats.client.api.PublishAck;
 import io.nats.client.impl.Headers;
 import io.nats.client.impl.NatsMessage;
 import org.apache.camel.AsyncCallback;
@@ -74,24 +77,30 @@ public class NatsProducer extends DefaultAsyncProducer {
             }
         }
 
+        final NatsMessage msg = NatsMessage.builder()
+                .data(body)
+                .subject(config.getTopic())
+                .headers(this.buildHeaders(exchange))
+                .replyTo(config.getReplySubject())
+                .build();
+
+        // If we're out-capable, then don't use JetStream if configured - we'll sit and wait for the response
+        // which gives us our 'ack', and publishing to JetStream won't let us get the response back directly.
         if (exchange.getPattern().isOutCapable()) {
             LOG.debug("Requesting to topic: {}", config.getTopic());
 
-            final NatsMessage.Builder builder = NatsMessage.builder()
-                    .data(body)
-                    .subject(config.getTopic())
-                    .headers(this.buildHeaders(exchange));
-            final CompletableFuture<Message> requestFuture = this.connection.request(builder.build());
-            final CompletableFuture timeoutFuture = this.failAfter(exchange,
+            final CompletableFuture<Message> requestFuture = this.connection.request(msg);
+            final CompletableFuture<ExchangeTimedOutException> timeoutFuture = this.failAfter(
+                    exchange,
                     Duration.ofMillis(config.getRequestTimeout()));
             CompletableFuture.anyOf(requestFuture, timeoutFuture).whenComplete((message, e) -> {
                 if (e == null) {
-                    final Message msg = (Message) message;
-                    exchange.getMessage().setBody(msg.getData());
-                    exchange.getMessage().setHeader(NatsConstants.NATS_REPLY_TO, msg.getReplyTo());
-                    exchange.getMessage().setHeader(NatsConstants.NATS_SID, msg.getSID());
-                    exchange.getMessage().setHeader(NatsConstants.NATS_SUBJECT, msg.getSubject());
-                    exchange.getMessage().setHeader(NatsConstants.NATS_QUEUE_NAME, msg.getSubscription().getQueueName());
+                    final Message response = (Message) message;
+                    exchange.getMessage().setBody(response.getData());
+                    exchange.getMessage().setHeader(NatsConstants.NATS_REPLY_TO, response.getReplyTo());
+                    exchange.getMessage().setHeader(NatsConstants.NATS_SID, response.getSID());
+                    exchange.getMessage().setHeader(NatsConstants.NATS_SUBJECT, response.getSubject());
+                    exchange.getMessage().setHeader(NatsConstants.NATS_QUEUE_NAME, response.getSubscription().getQueueName());
                     exchange.getMessage().setHeader(NatsConstants.NATS_MESSAGE_TIMESTAMP, System.currentTimeMillis());
                 } else {
                     exchange.setException(e.getCause());
@@ -105,22 +114,28 @@ public class NatsProducer extends DefaultAsyncProducer {
                 }
             });
             return false;
+        } else if (config.isJetStream()) {
+            LOG.debug("Publishing using JetStream to topic: {}", config.getTopic());
+            try {
+                PublishAck ack = this.connection.jetStream().publish(msg);
+                exchange.getMessage().setHeader(NatsConstants.NATS_SUBJECT, msg.getSubject());
+                exchange.getMessage().setHeader(NatsConstants.NATS_STREAM_NAME, ack.getStream());
+                exchange.getMessage().setHeader(NatsConstants.NATS_SEQUENCE_NO, ack.getSeqno());
+                exchange.getMessage().setHeader(NatsConstants.NATS_DOMAIN_NAME, ack.getDomain());
+                exchange.getMessage().setHeader(NatsConstants.NATS_WAS_DUPLICATE, ack.isDuplicate());
+                exchange.getMessage().setHeader(NatsConstants.NATS_MESSAGE_TIMESTAMP, System.currentTimeMillis());
+            } catch (IOException | JetStreamApiException e) {
+                exchange.setException(e);
+                callback.done(true);
+                return true;
+            }
         } else {
             LOG.debug("Publishing to topic: {}", config.getTopic());
-
-            final NatsMessage.Builder builder = NatsMessage.builder()
-                    .data(body)
-                    .subject(config.getTopic())
-                    .headers(this.buildHeaders(exchange));
-
-            if (ObjectHelper.isNotEmpty(config.getReplySubject())) {
-                final String replySubject = config.getReplySubject();
-                builder.replyTo(replySubject);
-            }
-            this.connection.publish(builder.build());
-            callback.done(true);
-            return true;
+            this.connection.publish(msg);
         }
+
+        callback.done(true);
+        return true;
     }
 
     private Headers buildHeaders(final Exchange exchange) {
@@ -147,8 +162,8 @@ public class NatsProducer extends DefaultAsyncProducer {
         return headers;
     }
 
-    private <T> CompletableFuture<T> failAfter(Exchange exchange, Duration duration) {
-        final CompletableFuture<T> future = new CompletableFuture<>();
+    private CompletableFuture<ExchangeTimedOutException> failAfter(Exchange exchange, Duration duration) {
+        final CompletableFuture<ExchangeTimedOutException> future = new CompletableFuture<>();
         this.scheduler.schedule(() -> {
             final ExchangeTimedOutException ex = new ExchangeTimedOutException(exchange, duration.toMillis());
             return future.completeExceptionally(ex);
@@ -194,5 +209,4 @@ public class NatsProducer extends DefaultAsyncProducer {
         }
         super.doStop();
     }
-
 }
